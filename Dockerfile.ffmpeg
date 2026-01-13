@@ -1,0 +1,241 @@
+# FFmpeg Docker image with hardware acceleration (NVENC, VAAPI, QSV, AMF)
+#
+# Uses install-ffmpeg.sh as single source of truth for build configuration.
+#
+# NVIDIA GPU compatibility:
+#   FFmpeg compiles CUDA code to PTX (parallel thread execution) assembly,
+#   NOT to GPU-specific SASS binary code. PTX is forward-compatible: the
+#   NVIDIA driver JIT-compiles PTX to the actual GPU at runtime.
+#
+#   This means a binary built with -arch=sm_52 (Maxwell) runs on ALL GPUs
+#   from Maxwell through Blackwell and beyond. The only cost is JIT compilation
+#   on first run (cached by driver for subsequent runs).
+#
+#   For Docker builds, we use NVCC_GENCODE=minimum (sm_52 for CUDA <13, sm_75 for CUDA 13+)
+#   to maximize GPU compatibility. For local builds, install-ffmpeg.sh defaults to
+#   NVCC_GENCODE=native for best performance on the build machine.
+
+# =============================================================================
+# Builder stage: compile FFmpeg using install-ffmpeg.sh
+# =============================================================================
+FROM ubuntu:22.04 AS builder
+
+# Build configuration - these are passed to install-ffmpeg.sh via environment
+# Hardware acceleration
+ARG ENABLE_NVIDIA_CUDA=1
+ARG ENABLE_AMD_AMF=1
+ARG ENABLE_LIBTORCH=0
+ARG LIBTORCH_VERSION=2.5.0
+ARG LIBTORCH_VARIANT=cu124
+# Library builds
+ARG BUILD_LIBPLACEBO=1
+ARG BUILD_LIBX265=1
+ARG BUILD_LIBAOM=1
+ARG BUILD_LIBWEBP=1
+ARG BUILD_LIBVPL=1
+ARG BUILD_LIBDAV1D=1
+ARG BUILD_LIBSVTAV1=1
+ARG BUILD_LIBVMAF=1
+ARG BUILD_LIBVA=1
+ARG BUILD_LIBJXL=1
+ARG BUILD_LIBX264=1
+ARG FFMPEG_VERSION=snapshot
+ARG CUDA_VERSION=12-9
+ARG NVCC_GENCODE=minimum
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=Etc/UTC
+# Override install-ffmpeg.sh paths for container
+ENV SRC_DIR=/src
+ENV BUILD_DIR=/opt/ffmpeg_build
+ENV BIN_DIR=/opt/bin
+ENV LIB_DIR=/opt/lib
+# Pass build args to script via env
+ENV ENABLE_NVIDIA_CUDA=${ENABLE_NVIDIA_CUDA}
+ENV ENABLE_AMD_AMF=${ENABLE_AMD_AMF}
+ENV ENABLE_LIBTORCH=${ENABLE_LIBTORCH}
+ENV LIBTORCH_VERSION=${LIBTORCH_VERSION}
+ENV LIBTORCH_VARIANT=${LIBTORCH_VARIANT}
+ENV BUILD_LIBPLACEBO=${BUILD_LIBPLACEBO}
+ENV BUILD_LIBX265=${BUILD_LIBX265}
+ENV BUILD_LIBAOM=${BUILD_LIBAOM}
+ENV BUILD_LIBWEBP=${BUILD_LIBWEBP}
+ENV BUILD_LIBVPL=${BUILD_LIBVPL}
+ENV BUILD_LIBDAV1D=${BUILD_LIBDAV1D}
+ENV BUILD_LIBSVTAV1=${BUILD_LIBSVTAV1}
+ENV BUILD_LIBVMAF=${BUILD_LIBVMAF}
+ENV BUILD_LIBVA=${BUILD_LIBVA}
+ENV BUILD_LIBJXL=${BUILD_LIBJXL}
+ENV BUILD_LIBX264=${BUILD_LIBX264}
+ENV FFMPEG_VERSION=${FFMPEG_VERSION}
+ENV CUDA_VERSION=${CUDA_VERSION}
+ENV NVCC_GENCODE=${NVCC_GENCODE}
+
+# Install sudo (install-ffmpeg.sh uses it) and preserve env vars for sudo
+RUN apt-get update && apt-get install -y sudo && \
+    echo 'Defaults env_keep += "DEBIAN_FRONTEND TZ"' > /etc/sudoers.d/keep_env && \
+    chmod 0440 /etc/sudoers.d/keep_env
+
+# Copy and run the build script
+COPY tools/install-ffmpeg.sh /tmp/
+ARG FF_BUILD_CACHE_BUST=0
+RUN echo "FF_BUILD_CACHE_BUST=${FF_BUILD_CACHE_BUST}" && \
+    chmod +x /tmp/install-ffmpeg.sh && /tmp/install-ffmpeg.sh
+
+# Ensure FFmpeg binaries are in /opt/bin (some environments install to ~/.local/bin)
+RUN if [ ! -x /opt/bin/ffmpeg ] && [ -x /root/.local/bin/ffmpeg ]; then \
+        cp -a /root/.local/bin/ffmpeg /opt/bin/ffmpeg; \
+    fi && \
+    if [ ! -x /opt/bin/ffprobe ] && [ -x /root/.local/bin/ffprobe ]; then \
+        cp -a /root/.local/bin/ffprobe /opt/bin/ffprobe; \
+    fi
+
+# =============================================================================
+# Runtime stage: minimal image with just FFmpeg binaries
+# =============================================================================
+FROM ubuntu:24.04
+
+ARG BUILD_DATE
+ARG FFMPEG_VERSION=snapshot
+ARG ENABLE_NVIDIA_CUDA=1
+ARG ENABLE_AMD_AMF=1
+ARG ENABLE_LIBTORCH=0
+ARG BUILD_LIBPLACEBO=1
+ARG BUILD_LIBX265=1
+ARG BUILD_LIBAOM=1
+ARG BUILD_LIBWEBP=1
+ARG BUILD_LIBVPL=1
+ARG BUILD_LIBDAV1D=1
+ARG BUILD_LIBSVTAV1=1
+ARG BUILD_LIBVMAF=1
+ARG BUILD_LIBVA=1
+ARG BUILD_LIBJXL=1
+ARG BUILD_LIBX264=1
+
+LABEL org.opencontainers.image.created="${BUILD_DATE}"
+LABEL org.opencontainers.image.title="netv-ffmpeg"
+LABEL org.opencontainers.image.description="FFmpeg with NVENC, VAAPI, QSV, AMF hardware acceleration"
+LABEL org.opencontainers.image.version="${FFMPEG_VERSION}"
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Runtime libraries for FFmpeg
+# Note: x265, libaom, libwebp, libvpl, libdav1d are statically linked when built from source
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
+    # Core codec libs
+    libass9 \
+    libbluray2 \
+    libfdk-aac2 \
+    libmp3lame0 \
+    libopus0 \
+    libvorbis0a \
+    libvorbisenc2 \
+    libvpx9 \
+    # Text/font rendering
+    libfontconfig1 \
+    libfreetype6 \
+    libfribidi0 \
+    libharfbuzz0b \
+    # Audio/video processing
+    librubberband2 \
+    libsoxr0 \
+    libvidstab1.1 \
+    libzimg2 \
+    libnuma1 \
+    # Network/crypto
+    libsrt1.5-openssl \
+    libssl3 \
+    # X11/display
+    libxcb1 \
+    libxcb-shm0 \
+    libxcb-shape0 \
+    libxcb-xfixes0 \
+    libxv1 \
+    libx11-6 \
+    libxext6 \
+    # Hardware accel:
+    # - NVENC/CUDA: provided by nvidia-container-toolkit from host (no pkg needed)
+    # - VAAPI: intel-media-va-driver (Intel Gen8+), i965-va-driver (legacy Intel), mesa-va-drivers (AMD), libva from source (below)
+    # - OpenCL: ocl-icd-libopencl1 (ICD loader), backend from host (NVIDIA) or mesa-opencl-icd (AMD)
+    # - Vulkan: libvulkan1 (conditional below), driver from host
+    libvdpau1 \
+    intel-media-va-driver \
+    i965-va-driver \
+    mesa-va-drivers \
+    ocl-icd-libopencl1 \
+    # Other deps
+    zlib1g \
+    libunistring5 \
+    liblzma5 \
+    liblzo2-2 \
+    libasound2t64 \
+    libdrm2 \
+    libsndio7.0 \
+    libsdl2-2.0-0 \
+    libpulse0
+
+# Conditional runtime libs for apt-based packages (when not built from source)
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    APT_PKGS="" && \
+    [ "$BUILD_LIBX265" != "1" ] && APT_PKGS="$APT_PKGS libx265-199" ; \
+    [ "$BUILD_LIBAOM" != "1" ] && APT_PKGS="$APT_PKGS libaom3" ; \
+    [ "$BUILD_LIBWEBP" != "1" ] && APT_PKGS="$APT_PKGS libwebp7 libwebpmux3" ; \
+    [ "$BUILD_LIBVPL" != "1" ] && APT_PKGS="$APT_PKGS libvpl2" ; \
+    [ "$BUILD_LIBDAV1D" != "1" ] && APT_PKGS="$APT_PKGS libdav1d7" ; \
+    [ "$BUILD_LIBSVTAV1" != "1" ] && APT_PKGS="$APT_PKGS libsvtav1enc1d1" ; \
+    [ "$BUILD_LIBVMAF" != "1" ] && APT_PKGS="$APT_PKGS libvmaf3" ; \
+    [ "$BUILD_LIBPLACEBO" = "1" ] && APT_PKGS="$APT_PKGS libvulkan1" ; \
+    [ "$BUILD_LIBVA" != "1" ] && APT_PKGS="$APT_PKGS libva2 libva-drm2 libva-x11-2" ; \
+    [ "$BUILD_LIBJXL" = "1" ] && APT_PKGS="$APT_PKGS libbrotli1 libhwy1t64" ; \
+    [ "$BUILD_LIBJXL" != "1" ] && APT_PKGS="$APT_PKGS libjxl0.7" ; \
+    [ "$BUILD_LIBX264" != "1" ] && APT_PKGS="$APT_PKGS libx264-164" ; \
+    if [ -n "$APT_PKGS" ]; then apt-get update && apt-get install -y --no-install-recommends $APT_PKGS; fi
+
+# Tell libva where to find system drivers (intel-media-va-driver, mesa-va-drivers)
+# Our libva is built with prefix=/opt/ffmpeg_build but drivers are system-installed
+ENV LIBVA_DRIVERS_PATH=/usr/lib/x86_64-linux-gnu/dri
+
+# Copy FFmpeg binaries from builder
+COPY --from=builder /opt/bin/ffmpeg /usr/local/bin/ffmpeg
+COPY --from=builder /opt/bin/ffprobe /usr/local/bin/ffprobe
+
+# Copy built libva if compiled from source (for Intel Xe kernel driver support)
+# libva needs to be in /opt/lib to match the rpath embedded in ffmpeg binary
+RUN --mount=type=bind,from=builder,source=/opt/lib,target=/tmp/ffmpeg_libs \
+    if [ "$BUILD_LIBVA" = "1" ] && [ -f /tmp/ffmpeg_libs/libva.so ]; then \
+        mkdir -p /opt/lib && \
+        cp -a /tmp/ffmpeg_libs/libva*.so* /opt/lib/ && \
+        echo "/opt/lib" > /etc/ld.so.conf.d/ffmpeg.conf && \
+        ldconfig; \
+    fi
+
+# Copy VMAF model files if built from source (needed for -vf libvmaf filter)
+RUN --mount=type=bind,from=builder,source=/opt/ffmpeg_build/share,target=/tmp/ffmpeg_share \
+    if [ "$BUILD_LIBVMAF" = "1" ] && [ -d /tmp/ffmpeg_share/libvmaf ]; then \
+        mkdir -p /usr/local/share && \
+        cp -a /tmp/ffmpeg_share/libvmaf /usr/local/share/; \
+    fi
+
+# Copy LibTorch shared libraries if torch enabled (needed for DNN filters)
+RUN --mount=type=bind,from=builder,source=/src,target=/tmp/src \
+    if [ "$ENABLE_LIBTORCH" = "1" ] && [ -d /tmp/src/libtorch/lib ]; then \
+        mkdir -p /opt/lib && \
+        cp -a /tmp/src/libtorch/lib/*.so* /opt/lib/ && \
+        echo "/opt/lib" > /etc/ld.so.conf.d/libtorch.conf && \
+        ldconfig; \
+    fi
+
+# Verify all dependencies are satisfied
+RUN ldd /usr/local/bin/ffmpeg | grep -q "not found" && \
+    { echo "Missing libraries:"; ldd /usr/local/bin/ffmpeg | grep "not found"; exit 1; } || \
+    echo "All FFmpeg dependencies satisfied"
+
+RUN /usr/local/bin/ffmpeg -version > /ffmpeg-version.txt && \
+    /usr/local/bin/ffmpeg -hide_banner -encoders > /ffmpeg-encoders.txt && \
+    /usr/local/bin/ffmpeg -hide_banner -decoders > /ffmpeg-decoders.txt && \
+    /usr/local/bin/ffmpeg -hide_banner -filters > /ffmpeg-filters.txt
+
+CMD ["ffmpeg", "-version"]

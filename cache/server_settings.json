@@ -1,0 +1,9 @@
+{
+  "secret_key": "b9bc444daf003d074a53262956610ef72a951bc24062d4eac9e9b090e46df22a",
+  "users": {
+    "rgpc": {
+      "password": "ea58898ce7f16d9cfea5ed6c406cfea8:d75fc781692acd6252d3d50bd54d3fde67241b3823aca70d40aa542a86fc7988",
+      "admin": true
+    }
+  }
+}

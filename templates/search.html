@@ -1,0 +1,207 @@
+{% extends "base.html" %}
+{% block title %}Search - neTV{% endblock %}
+
+{% block content %}
+<div class="flex flex-col h-full min-h-0 min-w-0">
+  <h2 class="text-xl sm:text-3xl font-bold mb-6">Search</h2>
+
+  <form action="/search" method="GET" class="mb-8">
+    <div class="flex flex-wrap items-center gap-2 sm:gap-4 max-w-xl mb-3">
+      <input type="text" name="q" value="{{ query }}" placeholder="Search..."
+             class="flex-1 min-w-0 px-3 sm:px-6 py-2 sm:py-4 bg-gray-800 rounded-lg text-base sm:text-xl focus:ring-2 focus:ring-blue-500 focus:outline-none"
+             autofocus>
+      <label class="flex items-center gap-2 text-sm text-gray-400 cursor-pointer">
+        <input type="checkbox" name="regex" value="true" {% if regex %}checked{% endif %}
+               class="w-4 h-4 rounded bg-gray-700 border-gray-600 text-blue-500 focus:ring-blue-500">
+        Regex
+      </label>
+    </div>
+    <div class="flex items-center gap-4 text-sm">
+      <label class="flex items-center gap-2 text-gray-400 cursor-pointer">
+        <input type="checkbox" name="live" value="true" {% if search_live %}checked{% endif %}
+               class="w-4 h-4 rounded bg-gray-700 border-gray-600 text-blue-500 focus:ring-blue-500">
+        Live TV
+      </label>
+      <label class="flex items-center gap-2 text-gray-400 cursor-pointer">
+        <input type="checkbox" name="vod" value="true" {% if search_vod %}checked{% endif %}
+               class="w-4 h-4 rounded bg-gray-700 border-gray-600 text-blue-500 focus:ring-blue-500">
+        Movies
+      </label>
+      <label class="flex items-center gap-2 text-gray-400 cursor-pointer">
+        <input type="checkbox" name="series" value="true" {% if search_series %}checked{% endif %}
+               class="w-4 h-4 rounded bg-gray-700 border-gray-600 text-blue-500 focus:ring-blue-500">
+        Series
+      </label>
+      <label class="flex items-center gap-2 text-gray-400">
+        <span>Limit:</span>
+        <select name="limit" class="bg-gray-700 border-gray-600 rounded px-2 py-1 text-sm" onchange="this.form.submit()">
+          <option value="25" {% if limit == 25 %}selected{% endif %}>25</option>
+          <option value="50" {% if limit == 50 %}selected{% endif %}>50</option>
+          <option value="100" {% if limit == 100 %}selected{% endif %}>100</option>
+          <option value="250" {% if limit == 250 %}selected{% endif %}>250</option>
+          <option value="0" {% if limit == 0 %}selected{% endif %}>All</option>
+        </select>
+      </label>
+    </div>
+  </form>
+
+  <div class="flex-1 min-h-0 overflow-auto scroll-ring-safe">
+  {% if query %}
+  {% if results.live or results.vod or results.series %}
+  <div class="flex gap-4 mb-4 text-sm">
+    {% if results.live %}<a href="#live-results" class="text-blue-400 hover:underline">Live ({{ results.live|length }}{% if limit and results.live|length == limit %}+{% endif %})</a>{% endif %}
+    {% if results.vod %}<a href="#vod-results" class="text-blue-400 hover:underline">Movies ({{ results.vod|length }}{% if limit and results.vod|length == limit %}+{% endif %})</a>{% endif %}
+    {% if results.series %}<a href="#series-results" class="text-blue-400 hover:underline">Series ({{ results.series|length }}{% if limit and results.series|length == limit %}+{% endif %})</a>{% endif %}
+  </div>
+  {% endif %}
+  <!-- Live results -->
+  {% if results.live %}
+  <div id="live-results" class="mb-8">
+    <h3 class="text-2xl font-semibold mb-4">Live Channels ({{ results.live|length }}{% if limit and results.live|length == limit %}+{% endif %})</h3>
+    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+      {% for stream in results.live %}
+      <a href="/play/live/{{ stream.stream_id }}"
+         class="block bg-gray-800 rounded-lg p-4 hover:ring-2 hover:ring-blue-500 focus:ring-2 focus:ring-blue-500 focusable transition-all flex flex-col items-center"
+         tabindex="0" data-nav="grid">
+        {% if stream.stream_icon %}
+        <img data-src="{{ stream.stream_icon | logo_url }}" alt="" class="w-16 h-16 object-contain mb-2 lazy-img"
+             onerror="this.style.display='none'">
+        {% endif %}
+        <span class="text-center line-clamp-2">{{ stream.name }}</span>
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- VOD results -->
+  {% if results.vod %}
+  <div id="vod-results" class="mb-8">
+    <h3 class="text-2xl font-semibold mb-4">Movies ({{ results.vod|length }}{% if limit and results.vod|length == limit %}+{% endif %})</h3>
+    <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
+      {% for movie in results.vod %}
+      <div class="movie-card relative group" data-movie-id="{{ movie.stream_id }}" data-movie-name="{{ movie.name }}"
+           data-movie-cover="{{ (movie.stream_icon or '') | logo_url }}" data-movie-ext="{{ movie.container_extension or 'mkv' }}">
+        <a href="/movie/{{ movie.stream_id }}"
+           class="block bg-gray-800 rounded-lg overflow-hidden hover:ring-2 hover:ring-blue-500 focus:ring-2 focus:ring-blue-500 focusable transition-all"
+           tabindex="0" data-nav="grid">
+          <div class="aspect-[2/3] bg-gray-700">
+            {% if movie.stream_icon %}
+            <img data-src="{{ movie.stream_icon | logo_url }}" alt="" class="w-full h-full object-cover lazy-img"
+                 onerror="this.style.display='none'">
+            {% endif %}
+          </div>
+          <div class="p-2">
+            <span class="text-sm line-clamp-2">{{ movie.name }}</span>
+          </div>
+        </a>
+        <button type="button" class="fav-btn-movie absolute top-2 right-2 w-8 h-8 rounded-full bg-black/50 text-xl opacity-0 group-hover:opacity-100 transition-opacity z-10"
+                onclick='toggleMovieFavorite({{ movie.stream_id | tojson }}, {{ movie.name | tojson }}, {{ (movie.stream_icon or "") | logo_url | tojson }}, {{ (movie.container_extension or "mkv") | tojson }})'>
+          ☆
+        </button>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Series results -->
+  {% if results.series %}
+  <div id="series-results" class="mb-8">
+    <h3 class="text-2xl font-semibold mb-4">Series ({{ results.series|length }}{% if limit and results.series|length == limit %}+{% endif %})</h3>
+    <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
+      {% for s in results.series %}
+      <div class="series-card relative group" data-series-id="{{ s.series_id }}" data-series-name="{{ s.name }}" data-series-cover="{{ (s.cover or '') | logo_url }}">
+        <a href="/series/{{ s.series_id }}"
+           class="block bg-gray-800 rounded-lg overflow-hidden hover:ring-2 hover:ring-blue-500 focus:ring-2 focus:ring-blue-500 focusable transition-all"
+           tabindex="0" data-nav="grid">
+          <div class="aspect-[2/3] bg-gray-700">
+            {% if s.cover %}
+            <img data-src="{{ s.cover | logo_url }}" alt="" class="w-full h-full object-cover lazy-img"
+                 onerror="this.style.display='none'">
+            {% endif %}
+          </div>
+          <div class="p-2">
+            <span class="text-sm line-clamp-2">{{ s.name }}</span>
+          </div>
+        </a>
+        <button type="button" class="fav-btn-series absolute top-2 right-2 w-8 h-8 rounded-full bg-black/50 text-xl opacity-0 group-hover:opacity-100 transition-opacity z-10"
+                onclick='toggleSeriesFavorite({{ s.series_id | tojson }}, {{ s.name | tojson }}, {{ (s.cover or "") | logo_url | tojson }})'>
+          ☆
+        </button>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% if not results.live and not results.vod and not results.series %}
+  <p class="text-gray-400 text-xl">No results found for "{{ query }}"</p>
+  {% endif %}
+  {% endif %}
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let favorites = {{ favorites | tojson }};
+
+function saveFavorites() {
+  fetch('/api/user-prefs', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({favorites})
+  });
+}
+
+function toggleSeriesFavorite(id, name, cover) {
+  id = String(id);
+  if (favorites.series[id]) delete favorites.series[id];
+  else favorites.series[id] = { name, cover };
+  saveFavorites();
+  updateButtons();
+}
+
+function toggleMovieFavorite(id, name, cover, ext) {
+  id = String(id);
+  if (favorites.movies[id]) delete favorites.movies[id];
+  else favorites.movies[id] = { name, cover, ext };
+  saveFavorites();
+  updateButtons();
+}
+
+function updateButtons() {
+  document.querySelectorAll('.fav-btn-series').forEach(btn => {
+    const card = btn.closest('.series-card');
+    const id = card?.dataset.seriesId;
+    btn.textContent = favorites.series[id] ? '★' : '☆';
+    btn.classList.toggle('text-yellow-400', !!favorites.series[id]);
+  });
+
+  document.querySelectorAll('.fav-btn-movie').forEach(btn => {
+    const card = btn.closest('.movie-card');
+    const id = card?.dataset.movieId;
+    btn.textContent = favorites.movies[id] ? '★' : '☆';
+    btn.classList.toggle('text-yellow-400', !!favorites.movies[id]);
+  });
+}
+
+updateButtons();
+
+// Lazy load images with Intersection Observer
+const scrollContainer = document.querySelector('.overflow-auto');
+const lazyObserver = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      const img = entry.target;
+      img.src = img.dataset.src;
+      img.classList.remove('lazy-img');
+      lazyObserver.unobserve(img);
+    }
+  });
+}, { root: scrollContainer, rootMargin: '200px' });
+
+document.querySelectorAll('.lazy-img').forEach(img => lazyObserver.observe(img));
+</script>
+{% endblock %}

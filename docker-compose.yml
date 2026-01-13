@@ -1,0 +1,52 @@
+# Docker Compose for neTV
+#
+# Build:
+#   docker compose build                              # Default (optimized FFmpeg)
+#   FFMPEG_IMAGE=ubuntu:24.04 docker compose build    # Alternative (apt FFmpeg)
+#
+# Run:
+#   docker compose up -d                    # Auto-detects hardware (Intel/AMD)
+#   docker compose --profile nvidia up -d   # NVIDIA GPU
+#
+# No GPU or /dev/dri? Comment out the 'devices' section below.
+
+services:
+  netv:
+    build:
+      context: .
+      args:
+        FFMPEG_IMAGE: ${FFMPEG_IMAGE:-ghcr.io/jvdillon/netv-ffmpeg:latest}
+    image: netv
+    container_name: netv
+    ports:
+      - "${NETV_PORT:-8000}:8000"
+    environment:
+      - NETV_PORT=8000
+      - NETV_HTTPS=${NETV_HTTPS:-}
+      - LOG_LEVEL=INFO  # DEBUG for verbose logging
+    volumes:
+      - ./cache:/app/cache
+      - /etc/localtime:/etc/localtime:ro  # Use host timezone for EPG
+      # For HTTPS, also mount your certificates:
+      # - /etc/letsencrypt:/etc/letsencrypt:ro
+      # Use system RAM instead of using local storage to store transcodes
+      # - /dev/shm:/tmp
+    restart: unless-stopped
+    # Hardware acceleration (Intel/AMD) - comment out if no /dev/dri
+    devices:
+      - /dev/dri:/dev/dri
+
+  # NVIDIA GPU: docker compose --profile nvidia up -d
+  netv-nvidia:
+    extends:
+      service: netv
+    container_name: netv
+    profiles:
+      - nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

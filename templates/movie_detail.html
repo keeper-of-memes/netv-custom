@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% block title %}{{ movie.name if movie else 'Movie' }} - neTV{% endblock %}
+
+{% block content %}
+<div class="flex flex-col md:h-full min-h-0 min-w-0">
+  {% if movie %}
+  <div class="flex gap-2 sm:gap-6 mb-6">
+    {% if movie.cover_big or movie.stream_icon %}
+    <img src="{{ (movie.cover_big or movie.stream_icon) | logo_url }}" alt="" class="w-24 sm:w-36 lg:w-48 h-auto max-h-72 object-cover rounded-lg flex-shrink-0">
+    {% endif %}
+    <div class="min-w-0 flex-1">
+      <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+        <h2 class="text-xl sm:text-3xl font-bold min-w-0">{{ movie.name }}</h2>
+        <button id="fav-btn" class="px-2 sm:px-4 py-1 sm:py-2 text-sm sm:text-base rounded bg-gray-700 hover:bg-gray-600 focusable flex-shrink-0" tabindex="0">
+          ☆ Add to Favorites
+        </button>
+      </div>
+      <div class="flex gap-4 text-gray-400 mb-4">
+        {% if movie.year %}<span>{{ movie.year }}</span>{% endif %}
+        {% if movie.rating %}<span class="text-yellow-400">★ {{ movie.rating }}/10</span>{% endif %}
+        {% if movie.duration %}<span>{{ movie.duration }}</span>{% endif %}
+      </div>
+
+      {% if movie.genre %}
+      <div class="text-sm text-gray-400 mb-4">{{ movie.genre }}</div>
+      {% endif %}
+
+      {% if movie.plot %}
+      <p class="text-gray-300 mb-6 max-w-3xl">{{ movie.plot }}</p>
+      {% endif %}
+
+      {% if movie.director %}
+      <p class="text-sm text-gray-400 mb-1"><span class="text-gray-500">Director:</span> {{ movie.director }}</p>
+      {% endif %}
+      {% if movie.cast %}
+      <p class="text-sm text-gray-400 mb-4"><span class="text-gray-500">Cast:</span> {{ movie.cast }}</p>
+      {% endif %}
+
+      <div class="flex flex-wrap gap-2 sm:gap-4">
+        <a href="/play/movie/{{ movie.stream_id }}?ext={{ movie.container_extension or 'mkv' }}"
+           class="inline-block px-4 sm:px-8 py-2 sm:py-4 bg-blue-600 hover:bg-blue-700 rounded-lg text-base sm:text-xl font-semibold focusable"
+           tabindex="0" autofocus>
+          ▶ Play
+        </a>
+        {% if movie.youtube_trailer %}
+        <a href="https://www.youtube.com/watch?v={{ movie.youtube_trailer }}" target="_blank"
+           class="inline-block px-4 sm:px-8 py-2 sm:py-4 bg-red-600 hover:bg-red-700 rounded-lg text-base sm:text-xl font-semibold focusable"
+           tabindex="0">
+          Trailer
+        </a>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  {% else %}
+  <p class="text-gray-400">Movie not found</p>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let favorites = {{ favorites | tojson }};
+const MOVIE_ID = '{{ movie.stream_id if movie else "" }}';
+const MOVIE_NAME = '{{ movie.name | e if movie else "" }}';
+const MOVIE_COVER = '{{ (movie.stream_icon or "") | logo_url | e if movie else "" }}';
+const MOVIE_EXT = '{{ movie.container_extension or "mkv" if movie else "mkv" }}';
+
+function saveFavorites() {
+  fetch('/api/user-prefs', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({favorites})
+  });
+}
+
+function toggleFavorite() {
+  if (!MOVIE_ID) return;
+  if (favorites.movies[MOVIE_ID]) {
+    delete favorites.movies[MOVIE_ID];
+  } else {
+    favorites.movies[MOVIE_ID] = { name: MOVIE_NAME, cover: MOVIE_COVER, ext: MOVIE_EXT };
+  }
+  saveFavorites();
+  updateButton();
+}
+
+function updateButton() {
+  const btn = document.getElementById('fav-btn');
+  const isFav = !!favorites.movies[MOVIE_ID];
+  btn.innerHTML = isFav ? '★ In Favorites' : '☆ Add to Favorites';
+  btn.classList.toggle('bg-yellow-600', isFav);
+  btn.classList.toggle('hover:bg-yellow-700', isFav);
+  btn.classList.toggle('bg-gray-700', !isFav);
+  btn.classList.toggle('hover:bg-gray-600', !isFav);
+}
+
+document.getElementById('fav-btn').addEventListener('click', toggleFavorite);
+updateButton();
+</script>
+{% endblock %}

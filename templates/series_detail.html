@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% block title %}{{ series.info.name if series.info else 'Series' }} - neTV{% endblock %}
+
+{% block content %}
+<div class="flex flex-col md:h-full min-h-0 min-w-0">
+  {% if series.info %}
+  <div class="flex gap-2 sm:gap-6 mb-6">
+    {% if series.info.cover %}
+    <img src="{{ series.info.cover | logo_url }}" alt="" class="w-24 sm:w-36 lg:w-48 h-auto max-h-72 object-cover rounded-lg flex-shrink-0">
+    {% endif %}
+    <div class="min-w-0 flex-1">
+      <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+        <h2 class="text-xl sm:text-3xl font-bold min-w-0">{{ series.info.name }}</h2>
+        <div class="flex gap-2 flex-shrink-0">
+          <a href="?refresh=1" class="px-2 sm:px-4 py-1 sm:py-2 text-sm sm:text-base rounded bg-gray-700 hover:bg-gray-600 focusable" tabindex="0" title="Check for new episodes">↻</a>
+          <button id="fav-btn" class="px-2 sm:px-4 py-1 sm:py-2 text-sm sm:text-base rounded bg-gray-700 hover:bg-gray-600 focusable" tabindex="0">
+            ☆ Add to Favorites
+          </button>
+        </div>
+      </div>
+      <div class="flex gap-4 text-gray-400 mb-4">
+        {% if series.info.year %}<span>{{ series.info.year }}</span>{% endif %}
+        {% if series.info.rating %}<span class="text-yellow-400">★ {{ series.info.rating }}/10</span>{% endif %}
+        {% if series.info.episode_run_time %}<span>{{ series.info.episode_run_time }} min/ep</span>{% endif %}
+      </div>
+
+      {% if series.info.genre %}
+      <div class="text-sm text-gray-400 mb-4">{{ series.info.genre }}</div>
+      {% endif %}
+
+      {% if series.info.plot %}
+      <p class="text-gray-300 mb-6 max-w-3xl">{{ series.info.plot }}</p>
+      {% endif %}
+
+      {% if series.info.director %}
+      <p class="text-sm text-gray-400 mb-1"><span class="text-gray-500">Director:</span> {{ series.info.director }}</p>
+      {% endif %}
+      {% if series.info.cast %}
+      <p class="text-sm text-gray-400 mb-4"><span class="text-gray-500">Cast:</span> {{ series.info.cast }}</p>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Episodes by season -->
+  <div class="flex-1 min-h-0 md:overflow-auto scroll-ring-safe">
+  {% if series.episodes %}
+  {% set ns = namespace(first_ep=true) %}
+  {% for season_num, episodes in series.episodes.items() %}
+  <div class="mb-6">
+    <h3 class="text-xl font-semibold mb-3">Season {{ season_num }}</h3>
+    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 pr-1">
+      {% for ep in episodes %}
+      <a href="/play/series/{{ ep.id }}?series_id={{ series_id }}&ext={{ ep.container_extension or 'mkv' }}"
+         class="bg-gray-800 rounded-lg p-3 hover:ring-2 hover:ring-blue-500 focus:ring-2 focus:ring-blue-500 focusable transition-all"
+         tabindex="0" data-nav="grid" {% if ns.first_ep %}autofocus{% set ns.first_ep = false %}{% endif %}
+         title="{{ series.info.name if series.info else '' }} — S{{ '%02d' | format(season_num | int) }}E{{ '%02d' | format(ep.episode_num | int) }} — {{ ep.title }}{% if ep.description %}&#10;{{ ep.description }}{% elif ep.plot %}&#10;{{ ep.plot }}{% endif %}">
+        <div class="font-medium">E{{ ep.episode_num }}</div>
+        <div class="text-sm text-gray-400 line-clamp-1">{{ ep.title }}</div>
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+  {% endfor %}
+  {% else %}
+  <p class="text-gray-400">No episodes available</p>
+  {% endif %}
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let favorites = {{ favorites | tojson }};
+const SERIES_ID = '{{ series_id }}';
+const SERIES_NAME = '{{ series.info.name | e if series.info else "" }}';
+const SERIES_COVER = '{{ (series.info.cover or "") | logo_url | e if series.info else "" }}';
+
+function saveFavorites() {
+  fetch('/api/user-prefs', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({favorites})
+  });
+}
+
+function toggleFavorite() {
+  if (!SERIES_ID) return;
+  if (favorites.series[SERIES_ID]) {
+    delete favorites.series[SERIES_ID];
+  } else {
+    favorites.series[SERIES_ID] = { name: SERIES_NAME, cover: SERIES_COVER };
+  }
+  saveFavorites();
+  updateButton();
+}
+
+function updateButton() {
+  const btn = document.getElementById('fav-btn');
+  const isFav = !!favorites.series[SERIES_ID];
+  btn.innerHTML = isFav ? '★ In Favorites' : '☆ Add to Favorites';
+  btn.classList.toggle('bg-yellow-600', isFav);
+  btn.classList.toggle('hover:bg-yellow-700', isFav);
+  btn.classList.toggle('bg-gray-700', !isFav);
+  btn.classList.toggle('hover:bg-gray-600', !isFav);
+}
+
+document.getElementById('fav-btn').addEventListener('click', toggleFavorite);
+updateButton();
+</script>
+{% endblock %}

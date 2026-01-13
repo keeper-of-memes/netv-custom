@@ -1,0 +1,607 @@
+{% extends "base.html" %}
+{% block title %}Live TV - neTV{% endblock %}
+
+{% block head_extra %}
+{% if loading and not request.query_params.get('refreshing') %}
+<meta http-equiv="refresh" content="2">
+{% endif %}
+<style>
+/* Desktop (default): show desktop-only, hide compact-only */
+.compact-only { display: none; }
+.compact-only-block { display: none; }
+.desktop-only { display: flex; }
+.desktop-only-block { display: block; }
+
+/* Performance: contain layout recalculations to each row */
+.guide-row {
+  contain: layout style paint;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 4rem; /* approximate row height */
+}
+
+/* Mobile (width < 512px): show compact-only, hide desktop-only */
+@media (max-width: 511px) {
+  .guide-container .compact-only { display: flex; }
+  .guide-container .compact-only-block { display: block; }
+  .guide-container .desktop-only { display: none; }
+  .guide-container .desktop-only-block { display: none; }
+}
+
+/* Landscape mobile: hide header, compact time row */
+@media (max-height: 500px) and (max-width: 900px) and (orientation: landscape) {
+  .guide-container > .desktop-only { display: none !important; }
+  .guide-container > .mobile-header { display: none !important; }
+  .guide-container .desktop-only.sticky .relative { height: 1.25rem; }
+  .guide-container .desktop-only.sticky .relative div { font-size: 0.625rem; }
+}
+
+/* EPG cell focus */
+.desktop-only-block a[data-nav="epg"]:focus {
+  outline: 3px solid #3b82f6;
+  outline-offset: -1px;
+  background: rgba(59, 130, 246, 0.3);
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="guide-container flex flex-col h-full min-w-0">
+  <!-- Desktop header (fixed, non-scrolling) -->
+  <div class="desktop-only flex items-center justify-between gap-2 mb-4 h-10">
+    <div class="min-w-0 flex items-center gap-2 flex-shrink-0">
+      <h2 class="text-xl sm:text-3xl font-bold">Live TV</h2>
+      {% if saved_filter or selected_cats %}
+      <!-- Category filter multi-select dropdown -->
+      <div class="inline-block" id="category-dropdown">
+        <button type="button" id="category-dropdown-btn"
+                class="bg-gray-700 text-sm rounded px-2 py-1 border border-gray-600 hover:border-gray-500 focus:border-blue-500 focus:outline-none inline-flex items-center gap-1">
+          <span>{% if effective_cats.split(',') | length < ordered_filter_cats | length %}{{ effective_cats.split(',') | length }} selected{% else %}All categories{% endif %}</span>
+          <svg class="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+        </button>
+      </div>
+      <!-- Dropdown menu (portal, positioned via JS) -->
+      <div id="category-dropdown-menu" class="hidden fixed top-0 left-0 bg-gray-800 border border-gray-600 rounded shadow-lg z-[9999] min-w-[200px] max-h-[300px] overflow-y-auto">
+        <div class="p-2 border-b border-gray-700 flex gap-2">
+          <button type="button" onclick="document.querySelectorAll('#category-dropdown-menu .cat-checkbox').forEach(c=>c.checked=true)" class="text-xs text-blue-400 hover:text-blue-300">All</button>
+          <button type="button" onclick="document.querySelectorAll('#category-dropdown-menu .cat-checkbox').forEach(c=>c.checked=false)" class="text-xs text-blue-400 hover:text-blue-300">None</button>
+        </div>
+        {% for cat in ordered_filter_cats %}
+        <label class="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-700 cursor-pointer text-sm">
+          <input type="checkbox" class="cat-checkbox rounded bg-gray-600 border-gray-500 text-blue-500 focus:ring-blue-500 focus:ring-offset-0"
+                 value="{{ cat.category_id }}"
+                 {% if cat.category_id|string in effective_cats.split(',') %}checked{% endif %}>
+          <span class="truncate">{{ cat.category_name }}</span>
+        </label>
+        {% endfor %}
+      </div>
+      <script>
+      function applyDesktopFilter() {
+        var menu = document.getElementById('category-dropdown-menu');
+        var checks = menu ? menu.querySelectorAll('.cat-checkbox') : [];
+        var selected = [];
+        for (var i = 0; i < checks.length; i++) {
+          if (checks[i].checked) selected.push(checks[i].value);
+        }
+        var offset = {{ offset }};
+        // Determine URL first - explicit check for "all selected" vs "some/none"
+        var allSelected = checks.length > 0 && selected.length === checks.length;
+        var url = allSelected ? '/guide?offset=' + offset : '/guide?offset=' + offset + '&cats=' + selected.join(',');
+        // Save view preference (fire and forget, don't block navigation)
+        try {
+          fetch('/api/user-prefs', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({guide_selected_cats: allSelected ? null : selected})
+          });
+        } catch (e) {}
+        // Navigate
+        window.location.href = url;
+      }
+      </script>
+      <span class="text-xs text-gray-500">({{ total_count | default(channel_count) }} ch)</span>
+      <a href="/settings#filters" class="text-xs text-gray-500 hover:text-blue-400">[edit]</a>
+      {% endif %}
+    </div>
+    <div class="flex gap-1">
+      <a href="/guide?offset={{ offset - 3 }}{% if cats_param %}&cats={{ cats_param }}{% endif %}"
+         class="px-2 py-1 text-xs bg-gray-600 hover:bg-gray-500 rounded focusable" tabindex="0">
+        &larr; Earlier
+      </a>
+      <a href="/guide?offset=0{% if cats_param %}&cats={{ cats_param }}{% endif %}"
+         class="px-2 py-1 text-xs bg-blue-600 hover:bg-blue-700 rounded focusable" tabindex="0">
+        Now
+      </a>
+      <a href="/guide?offset={{ offset + 3 }}{% if cats_param %}&cats={{ cats_param }}{% endif %}"
+         class="px-2 py-1 text-xs bg-gray-600 hover:bg-gray-500 rounded focusable" tabindex="0">
+        Later &rarr;
+      </a>
+    </div>
+  </div>
+
+  {% if loading_message %}
+  <div class="bg-blue-900/50 border border-blue-500 rounded p-2 sm:p-4 mb-2 sm:mb-4">
+    <p class="text-blue-300 text-sm sm:text-base">{{ loading_message }}</p>
+  </div>
+  {% elif epg_error %}
+  <div class="bg-red-900/50 border border-red-500 rounded p-2 sm:p-4 mb-2 sm:mb-4">
+    <p class="text-red-300 text-sm sm:text-base">EPG Error: {{ epg_error }}</p>
+    <p class="text-xs sm:text-sm text-gray-400 mt-1">Showing channels without program info</p>
+  </div>
+  {% endif %}
+
+  <!-- Mobile header (outside scroll container, stays visible in portrait, hidden in landscape) -->
+  <div class="compact-only mobile-header items-center justify-between gap-1 p-2 bg-gray-900 border-b border-gray-700 rounded-t-lg">
+    <div class="flex items-center gap-1">
+      <span class="text-sm font-bold">Live TV</span>
+      {% if saved_filter or selected_cats %}
+      <!-- Mobile category filter multi-select -->
+      <div class="inline-block" id="category-dropdown-mobile">
+        <button type="button" id="category-dropdown-btn-mobile"
+                class="bg-gray-700 text-[10px] rounded px-1 py-0.5 border border-gray-600 inline-flex items-center gap-0.5 max-w-[100px]">
+          <span class="truncate">{% if effective_cats.split(',') | length < ordered_filter_cats | length %}{{ effective_cats.split(',') | length }} sel{% else %}All{% endif %}</span>
+          <svg class="w-2 h-2 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+        </button>
+      </div>
+      <!-- Mobile dropdown menu (portal) -->
+      <div id="category-dropdown-menu-mobile" class="hidden fixed top-0 left-0 bg-gray-800 border border-gray-600 rounded shadow-lg z-[9999] min-w-[160px] max-h-[250px] overflow-y-auto">
+        <div class="p-1.5 border-b border-gray-700 flex gap-2">
+          <button type="button" onclick="document.querySelectorAll('#category-dropdown-menu-mobile .cat-checkbox-mobile').forEach(c=>c.checked=true)" class="text-[10px] text-blue-400">All</button>
+          <button type="button" onclick="document.querySelectorAll('#category-dropdown-menu-mobile .cat-checkbox-mobile').forEach(c=>c.checked=false)" class="text-[10px] text-blue-400">None</button>
+        </div>
+        {% for cat in ordered_filter_cats %}
+        <label class="flex items-center gap-1.5 px-2 py-1 hover:bg-gray-700 cursor-pointer text-[11px]">
+          <input type="checkbox" class="cat-checkbox-mobile rounded bg-gray-600 border-gray-500 text-blue-500 w-3 h-3"
+                 value="{{ cat.category_id }}"
+                 {% if cat.category_id|string in effective_cats.split(',') %}checked{% endif %}>
+          <span class="truncate">{{ cat.category_name }}</span>
+        </label>
+        {% endfor %}
+      </div>
+      <script>
+      function applyMobileFilter() {
+        var menu = document.getElementById('category-dropdown-menu-mobile');
+        var checks = menu ? menu.querySelectorAll('.cat-checkbox-mobile') : [];
+        var selected = [];
+        for (var i = 0; i < checks.length; i++) {
+          if (checks[i].checked) selected.push(checks[i].value);
+        }
+        var offset = {{ offset }};
+        // Determine URL first - explicit check for "all selected" vs "some/none"
+        var allSelected = checks.length > 0 && selected.length === checks.length;
+        var url = allSelected ? '/guide?offset=' + offset : '/guide?offset=' + offset + '&cats=' + selected.join(',');
+        // Save view preference (fire and forget, don't block navigation)
+        try {
+          fetch('/api/user-prefs', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({guide_selected_cats: allSelected ? null : selected})
+          });
+        } catch (e) {}
+        // Navigate
+        window.location.href = url;
+      }
+      </script>
+      {% endif %}
+    </div>
+    <div class="flex gap-1">
+      <a href="/guide?offset={{ offset - 2 }}{% if cats_param %}&cats={{ cats_param }}{% endif %}"
+         class="px-1 py-0.5 text-[10px] bg-gray-700 rounded focusable" tabindex="0">◀</a>
+      <a href="/guide?offset=0{% if cats_param %}&cats={{ cats_param }}{% endif %}"
+         class="px-1 py-0.5 text-[10px] bg-blue-600 rounded focusable" tabindex="0">Now</a>
+      <a href="/guide?offset={{ offset + 2 }}{% if cats_param %}&cats={{ cats_param }}{% endif %}"
+         class="px-1 py-0.5 text-[10px] bg-gray-700 rounded focusable" tabindex="0">▶</a>
+    </div>
+  </div>
+
+  {% if grid_data %}
+  <!-- EPG Grid (scrollable) -->
+  <div class="flex-1 overflow-y-auto overflow-x-hidden bg-gray-800 rounded-lg">
+    <!-- Mobile Time Header -->
+    <div class="compact-only sticky top-0 z-20 bg-gray-900 border-b border-gray-700">
+      <div class="w-32 flex-shrink-0 p-1 bg-gray-900"></div>
+      <div class="flex-1 relative h-5">
+        {% for marker in time_markers_mobile %}
+        <div class="absolute top-0 h-full border-l border-gray-700 text-[10px] text-gray-400 pl-0.5"
+             style="left: {{ marker.left_pct }}%">
+          {{ marker.label }}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <!-- Desktop Time Header -->
+    <div class="desktop-only sticky top-0 z-20 bg-gray-900 border-b border-gray-700">
+      <div class="w-36 lg:w-48 flex-shrink-0 p-2 bg-gray-900"></div>
+      <div class="flex-1 relative h-10">
+        {% for marker in time_markers %}
+        <div class="absolute top-0 h-full border-l border-gray-700 text-sm text-gray-400 pl-1"
+             style="left: {{ marker.left_pct }}%">
+          {{ marker.label }}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <!-- Channel Rows -->
+    {% for row in grid_data %}
+    <div class="guide-row flex border-b border-gray-700 hover:bg-gray-750" data-row="{{ loop.index0 }}">
+      <!-- Mobile Channel Info -->
+      <div class="compact-only w-32 flex-shrink-0 p-1 items-center bg-gray-800 sticky left-0 z-10 border-r border-gray-700">
+        <a href="/play/live/{{ row.channel.stream_id }}"
+           class="text-xs line-clamp-2 hover:text-blue-400 focus:text-blue-400 focus:outline focus:outline-2 focus:outline-blue-500 focusable"
+           tabindex="0" data-nav="epg" data-row="{{ loop.index0 }}" data-col="-1"
+           title="{{ row.channel.name }}">
+          {{ row.channel.name }}
+        </a>
+      </div>
+
+      <!-- Desktop Channel Info -->
+      <div class="desktop-only w-36 lg:w-48 flex-shrink-0 p-1 items-center gap-1 bg-gray-800 sticky left-0 z-10 border-r border-gray-700">
+        {% if row.channel.icon %}
+        <img src="{{ row.channel.icon | logo_url }}" alt="" class="w-10 h-10 object-contain"
+             onerror="this.style.display='none'">
+        {% endif %}
+        <a href="/play/live/{{ row.channel.stream_id }}"
+           class="text-sm line-clamp-3 hover:text-blue-400 focus:text-blue-400 focus:outline focus:outline-2 focus:outline-blue-500 focusable"
+           tabindex="0" data-nav="epg" data-row="{{ loop.index0 }}" data-col="-1"
+           title="{{ row.channel.name }}">
+          {{ row.channel.name }}
+        </a>
+      </div>
+
+      <!-- Mobile Programs (2-hour window) -->
+      {% set row_idx = loop.index0 %}
+      <div class="compact-only-block flex-1 relative h-10 ml-1">
+        {% if row.programs_mobile %}
+        {% for prog in row.programs_mobile %}
+        <a href="/play/live/{{ row.channel.stream_id }}"
+           class="absolute top-0.5 bottom-0.5 bg-gray-700 hover:bg-gray-600 rounded px-1 overflow-hidden
+                  focusable border border-gray-600 focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 focus:ring-offset-gray-800"
+           style="left: {{ prog.left_pct }}%; width: calc({{ prog.width_pct }}% - 4px);"
+           tabindex="0" data-nav="epg" data-row="{{ row_idx }}" data-col="{{ loop.index0 }}"
+           title="{{ prog.title }}&#10;{{ prog.start }} - {{ prog.end }}&#10;{{ prog.desc }}">
+          <div class="text-[10px] font-medium truncate">{{ prog.title }}</div>
+        </a>
+        {% endfor %}
+        {% else %}
+        <div class="absolute inset-0.5 flex items-center px-1 text-gray-500 text-[10px]">
+          No info
+        </div>
+        {% endif %}
+      </div>
+
+      <!-- Desktop Programs -->
+      <div class="desktop-only-block flex-1 relative h-16 ml-1">
+        {% if row.programs %}
+        {% for prog in row.programs %}
+        <a href="/play/live/{{ row.channel.stream_id }}"
+           class="absolute top-1 bottom-1 bg-gray-700 hover:bg-gray-600 rounded px-2 py-1 overflow-hidden
+                  focusable border-2 border-transparent focus:border-blue-500 focus:bg-blue-900/50"
+           style="left: {{ prog.left_pct }}%; width: calc({{ prog.width_pct }}% - 4px);"
+           tabindex="0" data-nav="epg" data-row="{{ row_idx }}" data-col="{{ loop.index0 }}"
+           title="{{ prog.title }}&#10;{{ prog.start }} - {{ prog.end }}&#10;{{ prog.desc }}">
+          <div class="text-sm font-medium truncate">{{ prog.title }}</div>
+          <div class="text-xs text-gray-400 truncate">{{ prog.desc }}</div>
+        </a>
+        {% endfor %}
+        {% else %}
+        <div class="absolute inset-1 flex items-center px-2 text-gray-500 text-sm">
+          No program info
+        </div>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="flex-1 flex items-center justify-center bg-gray-800 rounded-lg">
+    <div class="text-center text-gray-400">
+      <p class="text-2xl mb-4">No channels selected</p>
+      <p>Go to <a href="/settings#filters" class="text-blue-400 hover:underline">Settings</a> to configure Live TV category filter</p>
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/virtual-guide.js"></script>
+<script>
+// Virtual scroll configuration
+const GUIDE_CONFIG = {
+  totalRows: {{ total_count | default(0) }},
+  offset: {{ offset }},
+  cats: {{ cats_param | tojson }},
+  initialRows: {{ grid_data | tojson | safe }},
+  // Logo URL proxy (matches _logo_url_filter in Python)
+  logoUrlFilter: function(url) {
+    if (!url || url.startsWith('/') || url.startsWith('data:')) {
+      return url;
+    }
+    try {
+      const parsed = new URL(url);
+      const source = parsed.hostname.split(':')[0] || 'external';
+      return '/api/logo?source=' + encodeURIComponent(source) + '&url=' + encodeURIComponent(url);
+    } catch (e) {
+      return url;
+    }
+  }
+};
+
+// Category multi-select dropdown toggle
+(function() {
+  function setupDropdown(btnId, menuId, applyFn) {
+    const btn = document.getElementById(btnId);
+    const menu = document.getElementById(menuId);
+    if (!btn || !menu) return;
+
+    // Move menu to body to avoid container clipping
+    document.body.appendChild(menu);
+
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (menu.classList.contains('hidden')) {
+        const rect = btn.getBoundingClientRect();
+        menu.style.top = rect.bottom + 4 + 'px';
+        menu.style.left = rect.left + 'px';
+        menu.classList.remove('hidden');
+      } else {
+        // Closing via button click - apply
+        menu.classList.add('hidden');
+        applyFn();
+      }
+    });
+
+    document.addEventListener('click', (e) => {
+      if (!menu.contains(e.target) && !btn.contains(e.target) && !menu.classList.contains('hidden')) {
+        menu.classList.add('hidden');
+        applyFn();
+      }
+    });
+  }
+
+  setupDropdown('category-dropdown-btn', 'category-dropdown-menu', applyDesktopFilter);
+  setupDropdown('category-dropdown-btn-mobile', 'category-dropdown-menu-mobile', applyMobileFilter);
+})();
+
+// Auto-refresh when EPG finishes loading
+{% if epg_loading %}
+(function() {
+  const es = new EventSource('/events/epg');
+  es.onmessage = function(e) {
+    if (e.data === 'epg_ready') {
+      es.close();
+      window.location.reload();
+    }
+  };
+  es.onerror = function() { es.close(); };
+})();
+{% endif %}
+
+// Auto-advance when half-hour boundary passes (only when viewing "now")
+{% if offset == 0 %}
+(function() {
+  const now = new Date();
+  const min = now.getMinutes();
+  const minToNext = min < 30 ? (30 - min) : (60 - min);
+  const msToNext = (minToNext * 60 - now.getSeconds()) * 1000 - now.getMilliseconds() + 500;
+  setTimeout(() => window.location.reload(), msToNext);
+})();
+{% endif %}
+
+// Initialize virtual scrolling if enabled and we have more than initial batch
+(function() {
+  const virtualScrollEnabled = {{ virtual_scroll | default(true) | tojson }};
+  if (virtualScrollEnabled && GUIDE_CONFIG.totalRows > GUIDE_CONFIG.initialRows.length && GUIDE_CONFIG.totalRows > 0) {
+    const container = document.querySelector('.guide-container');
+    if (container) {
+      window.virtualGuide = new VirtualGuide({
+        container: container,
+        totalRows: GUIDE_CONFIG.totalRows,
+        initialRows: GUIDE_CONFIG.initialRows,
+        offset: GUIDE_CONFIG.offset,
+        cats: GUIDE_CONFIG.cats,
+        rowHeight: 64,  // 4rem desktop
+        rowHeightMobile: 40,  // 2.5rem mobile
+        bufferSize: 50,
+        logoUrlFilter: GUIDE_CONFIG.logoUrlFilter
+      });
+    }
+  }
+})();
+
+// EPG-specific keyboard navigation
+(function() {
+  function isVisible(el) {
+    return el.offsetParent !== null;
+  }
+
+  // Use total count for keyboard navigation range
+  const maxRow = () => {
+    return Math.max(0, GUIDE_CONFIG.totalRows - 1);
+  };
+
+  function getVisiblePrograms(row) {
+    // Select ONLY from desktop-only-block containers
+    const containers = document.querySelectorAll('.desktop-only-block');
+    let programs = [];
+    containers.forEach(c => {
+      const rowDiv = c.closest('[data-row]');
+      if (rowDiv && rowDiv.dataset.row === String(row)) {
+        programs.push(...c.querySelectorAll('a[data-nav="epg"]'));
+      }
+    });
+    // Filter to unique visual positions (first element at each left position)
+    const seen = new Set();
+    const unique = programs.filter(p => {
+      const left = Math.round(p.getBoundingClientRect().left);
+      if (seen.has(left)) return false;
+      seen.add(left);
+      return true;
+    });
+    return unique;
+  }
+
+  function getCurrentPos() {
+    const el = document.activeElement;
+    if (!el || !el.dataset || el.dataset.nav !== 'epg') {
+      return { row: 0, col: -1 };
+    }
+    const row = parseInt(el.dataset.row) || 0;
+    const dataCol = parseInt(el.dataset.col);
+    if (dataCol === -1) {
+      return { row, col: -1 };
+    }
+    // Find visual index in sorted list
+    const programs = getVisiblePrograms(row);
+    const visualCol = programs.indexOf(el);
+    return { row, col: visualCol >= 0 ? visualCol : 0 };
+  }
+
+  function focusCell(row, col) {
+    // If virtual scrolling is active, ensure row is in view first
+    if (window.virtualGuide) {
+      const vg = window.virtualGuide;
+      const rowHeight = vg.currentRowHeight;
+      const viewport = vg.viewport;
+
+      // Check if row is outside rendered range
+      if (row < vg.renderedRange.start || row >= vg.renderedRange.end) {
+        // Scroll to bring row into view, then focus after render
+        const targetScroll = row * rowHeight - (viewport.clientHeight / 2) + (rowHeight / 2);
+        viewport.scrollTop = Math.max(0, targetScroll);
+
+        // Wait for render and then focus
+        setTimeout(() => doFocus(row, col), 100);
+        return;
+      }
+    }
+
+    doFocus(row, col);
+  }
+
+  function doFocus(row, col) {
+    let cell;
+    if (col === -1) {
+      const candidates = document.querySelectorAll(`[data-nav="epg"][data-row="${row}"][data-col="-1"]`);
+      cell = Array.from(candidates).find(isVisible);
+    } else {
+      const cells = getVisiblePrograms(row);
+      cell = cells[col] || cells[cells.length - 1];
+      if (!cell) {
+        const fallback = document.querySelectorAll(`[data-nav="epg"][data-row="${row}"][data-col="-1"]`);
+        cell = Array.from(fallback).find(isVisible);
+      }
+    }
+    if (cell) {
+      cell.focus();
+      cell.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
+    }
+  }
+
+  document.addEventListener('keydown', (e) => {
+    if (e.target.type === 'checkbox' || e.target.tagName === 'INPUT') return;
+    if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter', 'PageUp', 'PageDown', 'Home', 'End'].includes(e.key)) return;
+    if (e.altKey) return; // Allow browser back/forward
+
+    const { row, col } = getCurrentPos();
+    const catsParam = '{{ cats_param }}';
+    const catsSuffix = catsParam ? '&cats=' + catsParam : '';
+
+    switch(e.key) {
+      case 'ArrowUp':
+        e.preventDefault();
+        focusCell(Math.max(0, row - 1), col);
+        break;
+      case 'ArrowDown':
+        e.preventDefault();
+        focusCell(Math.min(maxRow(), row + 1), col);
+        break;
+      case 'ArrowLeft':
+        e.preventDefault();
+        if (col > -1) {
+          focusCell(row, col - 1);
+        } else {
+          window.location.href = `/guide?offset={{ offset - 3 }}${catsSuffix}`;
+        }
+        break;
+      case 'ArrowRight':
+        e.preventDefault();
+        const progs = getVisiblePrograms(row);
+        if (col < progs.length - 1) {
+          focusCell(row, col + 1);
+        }
+        break;
+      case 'Enter':
+        if (document.activeElement?.href) {
+          e.preventDefault();
+          if (e.ctrlKey || e.metaKey) {
+            window.open(document.activeElement.href, '_blank');
+          } else {
+            window.location.href = document.activeElement.href;
+          }
+        }
+        break;
+      case 'PageUp':
+      case 'PageDown':
+        e.preventDefault();
+        const container = document.querySelector('.overflow-y-auto');
+        const rowEl = document.querySelector('[data-row="0"]');
+        const pageSize = (container && rowEl) ? Math.floor(container.clientHeight / rowEl.offsetHeight) : 10;
+        if (e.key === 'PageUp') {
+          focusCell(Math.max(0, row - pageSize), col);
+        } else {
+          focusCell(Math.min(maxRow(), row + pageSize), col);
+        }
+        break;
+      case 'Home':
+        e.preventDefault();
+        focusCell(0, col);
+        break;
+      case 'End':
+        e.preventDefault();
+        focusCell(maxRow(), col);
+        break;
+    }
+  });
+
+  // Save/restore scroll position (persists across reloads and navigation)
+  // Note: VirtualGuide handles scroll restore for virtual scrolling mode
+  const scrollKey = 'guide_scroll';
+  const gridContainer = document.querySelector('.overflow-y-auto');
+  if (gridContainer) {
+    // Only restore if not using virtual scrolling (VirtualGuide handles it)
+    if (!window.virtualGuide) {
+      const saved = sessionStorage.getItem(scrollKey);
+      if (saved) gridContainer.scrollTop = parseInt(saved);
+    }
+    // Save on scroll (debounced)
+    let scrollTimer;
+    gridContainer.addEventListener('scroll', () => {
+      clearTimeout(scrollTimer);
+      scrollTimer = setTimeout(() => sessionStorage.setItem(scrollKey, gridContainer.scrollTop), 100);
+    });
+    // Save immediately when clicking any link (before navigation)
+    gridContainer.addEventListener('click', (e) => {
+      if (e.target.closest('a')) sessionStorage.setItem(scrollKey, gridContainer.scrollTop);
+    });
+    // Save before page unload (catches all navigation/reloads)
+    window.addEventListener('beforeunload', () => sessionStorage.setItem(scrollKey, gridContainer.scrollTop));
+    // Restore on bfcache navigation (pageshow fires when page is restored from cache)
+    window.addEventListener('pageshow', (e) => {
+      if (e.persisted) {
+        const saved = sessionStorage.getItem(scrollKey);
+        if (saved) gridContainer.scrollTop = parseInt(saved);
+      }
+    });
+  }
+
+  // Initial focus
+  setTimeout(() => {
+    const first = document.querySelector('[data-nav="epg"][data-row="0"][data-col="-1"]');
+    if (first && document.activeElement === document.body) first.focus();
+  }, 0);
+})();
+
+</script>
+{% endblock %}

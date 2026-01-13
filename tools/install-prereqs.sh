@@ -1,0 +1,30 @@
+#!/bin/bash
+# Install prerequisites for netv
+set -e
+
+echo "=== Checking prerequisites ==="
+for cmd in git curl; do
+    if ! command -v $cmd &> /dev/null; then
+        echo "Error: $cmd not found. Install it with your package manager."
+        exit 1
+    fi
+done
+
+echo "=== Installing uv ==="
+if command -v uv &> /dev/null; then
+    echo "uv already installed: $(uv --version)"
+else
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+    export PATH="$HOME/.local/bin:$PATH"
+fi
+
+echo "=== Installing Python 3.11 via uv ==="
+uv python install 3.11
+
+echo ""
+echo "=== Done ==="
+echo ""
+echo "Next steps:"
+echo "  1. Run: ./tools/install-letsencrypt.sh <your-domain>"
+echo "  2. Run: ./tools/install-ffmpeg.sh  (optional, for transcoding)"
+echo "  3. Run: sudo ./tools/install-netv.sh"
