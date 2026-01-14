@@ -167,10 +167,10 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     ocl-icd-libopencl1 \
     # Other deps
     zlib1g \
-    libunistring5 \
+    libunistring2 \
     liblzma5 \
     liblzo2-2 \
-    libasound2t64 \
+    libasound2 \
     libdrm2 \
     libsndio7.0 \
     libsdl2-2.0-0 \
