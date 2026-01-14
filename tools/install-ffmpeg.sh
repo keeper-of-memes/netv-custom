@@ -361,7 +361,8 @@ extern __DEVICE_FUNCTIONS_DECL__ __device_builtin__ float                  rsqrt
         fi
     fi
 
-    CUDA_FLAGS=(--enable-cuda-nvcc --enable-nvenc --enable-cuvid --enable-nvdec)
+    # cuvid is deprecated; nvdec covers decode. Dropping cuvid avoids ffnvcodec pkg check failures.
+    CUDA_FLAGS=(--enable-cuda-nvcc --enable-nvenc --enable-nvdec)
 
     CUDA_MAJOR="${CUDA_VERSION%%-*}"
 
@@ -399,11 +400,11 @@ extern __DEVICE_FUNCTIONS_DECL__ __device_builtin__ float                  rsqrt
     cd "$SRC_DIR" &&
     if [ -n "${NVENC_HEADERS_VERSION:-}" ]; then
         # Use specific version for compatibility with older drivers
-        ([ -d nv-codec-headers/.git ] && git -C nv-codec-headers fetch --tags && git -C nv-codec-headers checkout "${NVENC_HEADERS_VERSION}" || (rm -rf nv-codec-headers && git clone https://git.videolan.org/git/ffmpeg/nv-codec-headers.git && cd nv-codec-headers && git checkout "${NVENC_HEADERS_VERSION}")) &&
+        ([ -d nv-codec-headers/.git ] && git -C nv-codec-headers fetch --tags && git -C nv-codec-headers checkout "${NVENC_HEADERS_VERSION}" || (rm -rf nv-codec-headers && git clone https://github.com/FFmpeg/nv-codec-headers.git && cd nv-codec-headers && git checkout "${NVENC_HEADERS_VERSION}")) &&
         cd nv-codec-headers
     else
         # Use latest from git master
-        ([ -d nv-codec-headers/.git ] && git -C nv-codec-headers pull || (rm -rf nv-codec-headers && git clone --depth 1 https://git.videolan.org/git/ffmpeg/nv-codec-headers.git)) &&
+        ([ -d nv-codec-headers/.git ] && git -C nv-codec-headers pull || (rm -rf nv-codec-headers && git clone --depth 1 https://github.com/FFmpeg/nv-codec-headers.git)) &&
         cd nv-codec-headers
     fi &&
     make &&
