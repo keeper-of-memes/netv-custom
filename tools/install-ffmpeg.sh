@@ -397,16 +397,19 @@ extern __DEVICE_FUNCTIONS_DECL__ __device_builtin__ float                  rsqrt
         echo "CUDA $CUDA_VERSION NVCC_GENCODE=$NVCC_GENCODE -> $NVCC_ARCH"
     fi
 
+    # Pin nv-codec-headers to match legacy NVENC API 12.2 drivers (e.g., Synology)
+    : "${NVENC_HEADERS_VERSION:=sdk/12.2.72.0}"
+
     cd "$SRC_DIR" &&
-    if [ -n "${NVENC_HEADERS_VERSION:-}" ]; then
-        # Use specific version for compatibility with older drivers
-        ([ -d nv-codec-headers/.git ] && git -C nv-codec-headers fetch --tags && git -C nv-codec-headers checkout "${NVENC_HEADERS_VERSION}" || (rm -rf nv-codec-headers && git clone https://github.com/FFmpeg/nv-codec-headers.git && cd nv-codec-headers && git checkout "${NVENC_HEADERS_VERSION}")) &&
-        cd nv-codec-headers
-    else
-        # Use latest from git master
-        ([ -d nv-codec-headers/.git ] && git -C nv-codec-headers pull || (rm -rf nv-codec-headers && git clone --depth 1 https://github.com/FFmpeg/nv-codec-headers.git)) &&
-        cd nv-codec-headers
-    fi &&
+    (
+        if [ -d nv-codec-headers/.git ]; then
+            git -C nv-codec-headers fetch --depth 1 origin "${NVENC_HEADERS_VERSION}" &&
+            git -C nv-codec-headers checkout "${NVENC_HEADERS_VERSION}"
+        else
+            git clone --depth 1 --branch "${NVENC_HEADERS_VERSION}" https://github.com/FFmpeg/nv-codec-headers.git nv-codec-headers
+        fi
+    ) &&
+    cd nv-codec-headers &&
     make &&
     make PREFIX="$BUILD_DIR" install
 fi
