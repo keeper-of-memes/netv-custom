@@ -35,7 +35,7 @@ COPY templates/ templates/
 COPY static/ static/
 
 # Install Python dependencies
-RUN python3 -m pip install --no-cache-dir --break-system-packages .
+RUN python3 -m pip install --no-cache-dir .
 
 # Runtime config
 EXPOSE 8000
