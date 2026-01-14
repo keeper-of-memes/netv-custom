@@ -39,6 +39,7 @@ jobs:
           build-args: |
             CUDA_VERSION=12-4
             FF_BUILD_CACHE_BUST=${{ github.run_id }}
+            BUILD_LIBPLACEBO=0
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
