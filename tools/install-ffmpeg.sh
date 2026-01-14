@@ -399,16 +399,13 @@ extern __DEVICE_FUNCTIONS_DECL__ __device_builtin__ float                  rsqrt
 
     # Pin nv-codec-headers to match legacy NVENC API 12.2 drivers (e.g., Synology)
     : "${NVENC_HEADERS_VERSION:=sdk/12.2.72.0}"
+    NVENC_HEADERS_URL="${NVENC_HEADERS_URL:-https://github.com/FFmpeg/nv-codec-headers.git}"
 
     cd "$SRC_DIR" &&
-    (
-        if [ -d nv-codec-headers/.git ]; then
-            git -C nv-codec-headers fetch --depth 1 origin "${NVENC_HEADERS_VERSION}" &&
-            git -C nv-codec-headers checkout "${NVENC_HEADERS_VERSION}"
-        else
-            git clone --depth 1 --branch "${NVENC_HEADERS_VERSION}" https://github.com/FFmpeg/nv-codec-headers.git nv-codec-headers
-        fi
-    ) &&
+    rm -rf nv-codec-headers &&
+    # Try primary repo; fall back to VideoLAN mirror if the tag is missing there
+    (git clone --depth 1 --branch "${NVENC_HEADERS_VERSION}" "${NVENC_HEADERS_URL}" nv-codec-headers \
+      || git clone --depth 1 --branch "${NVENC_HEADERS_VERSION}" https://git.videolan.org/git/ffmpeg/nv-codec-headers.git nv-codec-headers) &&
     cd nv-codec-headers &&
     make &&
     make PREFIX="$BUILD_DIR" install
