@@ -93,7 +93,7 @@ RUN if [ ! -x /opt/bin/ffmpeg ] && [ -x /root/.local/bin/ffmpeg ]; then \
 # =============================================================================
 # Runtime stage: minimal image with just FFmpeg binaries
 # =============================================================================
-FROM ubuntu:24.04
+FROM ubuntu:22.04
 
 ARG BUILD_DATE
 ARG FFMPEG_VERSION=snapshot
@@ -132,7 +132,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     libopus0 \
     libvorbis0a \
     libvorbisenc2 \
-    libvpx9 \
+    libvpx7 \
     # Text/font rendering
     libfontconfig1 \
     libfreetype6 \
@@ -145,7 +145,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     libzimg2 \
     libnuma1 \
     # Network/crypto
-    libsrt1.5-openssl \
+    libsrt1.4-gnutls \
     libssl3 \
     # X11/display
     libxcb1 \
