@@ -146,6 +146,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     libnuma1 \
     # Network/crypto
     libsrt1.4-gnutls \
+    libsrt1.4-openssl \
     libssl3 \
     # X11/display
     libxcb1 \
