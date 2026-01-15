@@ -398,7 +398,7 @@ extern __DEVICE_FUNCTIONS_DECL__ __device_builtin__ float                  rsqrt
     fi
 
     # Pin nv-codec-headers to match legacy NVENC API 12.2 drivers (e.g., Synology)
-    : "${NVENC_HEADERS_VERSION:=sdk/12.2.72.0}"
+    : "${NVENC_HEADERS_VERSION:=sdk/12.2}"
     NVENC_HEADERS_URL="${NVENC_HEADERS_URL:-https://github.com/FFmpeg/nv-codec-headers.git}"
 
     cd "$SRC_DIR" &&

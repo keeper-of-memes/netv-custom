@@ -42,7 +42,7 @@ jobs:
             CUDA_VERSION=12-4
             FF_BUILD_CACHE_BUST=${{ github.run_id }}
             BUILD_LIBPLACEBO=0
-            NVENC_HEADERS_VERSION=sdk/12.2.72.0
+            NVENC_HEADERS_VERSION=sdk/12.2
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
